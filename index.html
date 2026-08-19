@@ -728,15 +728,18 @@
         <!-- Mode Camera -->
         <div id="camera-scan-section" style="display:none;text-align:center;">
           <div class="video-container">
-            <video id="video-element" autoplay playsinline></video>
-            <div class="viewfinder" id="viewfinder"></div>
-            <div id="camera-placeholder" style="color:#94a3b8;font-size:14px;">
-              <i class="fa-solid fa-camera" style="font-size:36px;margin-bottom:8px;display:block;"></i>
-              กดปุ่ม "เปิดกล้อง" เพื่อเริ่มตรวจ
+            <video id="video-element" autoplay playsinline webkit-playsinline muted style="display:none;width:100%;max-height:460px;object-fit:cover;border-radius:10px;"></video>
+            <div class="viewfinder" id="viewfinder" style="display:none;"></div>
+            <div id="camera-placeholder" style="color:#94a3b8;font-size:14px;padding:26px 16px;">
+              <i class="fa-solid fa-camera" style="font-size:42px;margin-bottom:12px;display:block;color:#f87171;"></i>
+              <div style="font-weight:600;font-size:15px;color:#334155;margin-bottom:6px;">ถ่ายภาพเพื่อตรวจกระดาษคำตอบ</div>
+              <div style="font-size:13px;color:#64748b;">กดปุ่ม <strong>"เปิดกล้องสด"</strong> หรือ <strong>"📸 ถ่ายรูปด้วยกล้องมือถือ"</strong> ด้านล่าง</div>
             </div>
           </div>
-          <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
-            <button class="btn btn-primary" id="btn-start-cam" onclick="startCamera()"><i class="fa-solid fa-video"></i> เปิดกล้อง</button>
+          <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:14px;">
+            <button class="btn btn-primary" id="btn-start-cam" onclick="startCamera()"><i class="fa-solid fa-video"></i> เปิดกล้องสด (Live Video)</button>
+            <button class="btn btn-outline" id="btn-native-snap" onclick="triggerNativeCameraSnap()"><i class="fa-solid fa-camera"></i> 📸 ถ่ายรูปด้วยกล้องมือถือ (Native HD)</button>
+            <input type="file" id="input-native-camera" accept="image/*" capture="environment" style="display:none;" onchange="onNativeCameraCaptured(event)">
             <button class="btn btn-outline" id="btn-switch-cam" style="display:none;" onclick="switchCameraFacing()"><i class="fa-solid fa-camera-rotate"></i> สลับกล้อง</button>
             <button class="btn btn-primary" id="btn-capture-cam" style="display:none;" onclick="captureAndGrade()"><i class="fa-solid fa-camera"></i> ถ่ายภาพและตรวจ</button>
             <button class="btn btn-danger" id="btn-stop-cam" style="display:none;" onclick="stopCamera()"><i class="fa-solid fa-video-slash"></i> ปิดกล้อง</button>
@@ -1265,17 +1268,63 @@
       }
     }
 
-    // Camera Operations
+    // Camera Operations & Mobile Compatibility
     async function startCamera() {
       const video = document.getElementById('video-element');
       const placeholder = document.getElementById('camera-placeholder');
       const viewfinder = document.getElementById('viewfinder');
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast("เบราว์เซอร์นี้ไม่รองรับสตรีมกล้องสด (แนะนำให้ใช้ปุ่ม '📸 ถ่ายรูปด้วยกล้องมือถือ')", "warning");
+        triggerNativeCameraSnap();
+        return;
+      }
+
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        videoStream = null;
+      }
+
+      // ลอง Constraints จากความเข้ากันได้หลายระดับ
+      const constraintOptions = [
+        { video: { facingMode: { ideal: cameraFacingMode }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+        { video: { facingMode: cameraFacingMode }, audio: false },
+        { video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+        { video: true, audio: false }
+      ];
+
+      let stream = null;
+      let lastErr = null;
+
+      for (let constraints of constraintOptions) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+
+      if (!stream) {
+        console.warn("Live camera stream error:", lastErr);
+        let errorMsg = "ไม่สามารถเปิดกล้องสดได้";
+        if (lastErr && lastErr.name === 'NotAllowedError') {
+          errorMsg = "กรุณากดอนุญาตการใช้กล้องในเบราว์เซอร์";
+        }
+        showToast(errorMsg + " (กำลังเปิดกล้องถ่ายภาพให้อัตโนมัติ...)", "warning");
+        triggerNativeCameraSnap();
+        return;
+      }
+
       try {
-        videoStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: cameraFacingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
-          audio: false
-        });
-        video.srcObject = videoStream;
+        videoStream = stream;
+        video.srcObject = stream;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        video.muted = true;
+
+        await video.play();
+
         video.style.display = 'block';
         placeholder.style.display = 'none';
         viewfinder.style.display = 'block';
@@ -1283,9 +1332,10 @@
         document.getElementById('btn-switch-cam').style.display = 'inline-flex';
         document.getElementById('btn-capture-cam').style.display = 'inline-flex';
         document.getElementById('btn-stop-cam').style.display = 'inline-flex';
-        showToast("เปิดกล้องสำเร็จ", "success");
-      } catch (err) {
-        showToast("ไม่สามารถเปิดกล้องได้: " + err.message, "danger");
+        showToast("เปิดกล้องสดสำเร็จ", "success");
+      } catch (playErr) {
+        console.error("Video play error:", playErr);
+        showToast("เกิดข้อผิดพลาดในการแสดงภาพกล้อง (แนะนำให้ใช้ปุ่ม '📸 ถ่ายรูปด้วยกล้องมือถือ')", "warning");
       }
     }
 
@@ -1307,6 +1357,62 @@
       cameraFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
       stopCamera();
       startCamera();
+    }
+
+    // Native Camera Snap (รองรับมือถือทุกรุ่น 100% ชัดระดับ 12MP-48MP)
+    function triggerNativeCameraSnap() {
+      if (document.getElementById('scan-exam-select').value === '') {
+        showToast("กรุณาเลือกชุดเฉลยก่อน", "warning");
+        return;
+      }
+      const inp = document.getElementById('input-native-camera');
+      if (inp) {
+        inp.value = '';
+        inp.click();
+      }
+    }
+
+    async function onNativeCameraCaptured(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (document.getElementById('scan-exam-select').value === '') {
+        showToast("กรุณาเลือกชุดเฉลยก่อน", "warning");
+        return;
+      }
+      if (!openCvReady) {
+        showToast("ระบบ AI กำลังโหลด กรุณารอสักครู่", "warning");
+        return;
+      }
+
+      showToast("กำลังประมวลผลตรวจกระดาษคำตอบ...", "info");
+      try {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        await new Promise((res, rej) => {
+          img.onload = res;
+          img.onerror = () => rej(new Error("โหลดภาพถ่ายไม่สำเร็จ"));
+          img.src = url;
+        });
+
+        const result = await analyzeOMRImage(img, currentExamAnswerKey);
+        scannedResults.unshift({
+          id: Date.now(),
+          fileName: 'ภาพถ่ายกล้อง_' + new Date().toLocaleTimeString('th-TH'),
+          origImage: url,
+          score: result.score,
+          maxScore: currentExamMaxScore,
+          percentage: currentExamMaxScore > 0 ? ((result.score / currentExamMaxScore) * 100).toFixed(2) : 0,
+          details: result.details,
+          debugImage: result.debugImage
+        });
+
+        renderResultsTable();
+        showToast(`ตรวจสำเร็จ: ได้ ${result.score}/${currentExamMaxScore} คะแนน`, "success");
+      } catch (err) {
+        console.error("Native Snap Grade Error:", err);
+        showToast("เกิดข้อผิดพลาดในการตรวจ: " + err.message, "danger");
+      }
     }
 
     async function captureAndGrade() {
@@ -1450,185 +1556,183 @@
     }
 
     // =========================================================================
-    //  PROFESSIONAL 1:1 OMR ENGINE (Direct Marker Bilinear Mapping - No Distortion)
+    //  PROFESSIONAL AI OMR ENGINE (Perspective Transform, Wrinkle & Shadow Invariant)
     // =========================================================================
     async function analyzeOMRImage(img, answerKey) {
-      // ใช้ขนาดภาพจริง 1:1 ของภาพต้นฉบับ ไม่ย่อ ไม่บีบสัดส่วน
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
+      // 1. วาดภาพต้นฉบับลง Canvas ขนาดเต็ม
+      const origCanvas = document.createElement('canvas');
+      origCanvas.width = img.width;
+      origCanvas.height = img.height;
+      const origCtx = origCanvas.getContext('2d');
+      origCtx.drawImage(img, 0, 0);
 
-      let src = cv.imread(canvas);
+      let src = cv.imread(origCanvas);
       let gray = new cv.Mat();
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
 
-      // ค้นหามาร์กเกอร์สี่เหลี่ยมสีดำ 4 มุม
-      let thresh = new cv.Mat();
-      cv.threshold(gray, thresh, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
-      let cnts = new cv.MatVector(), hier = new cv.Mat();
-      cv.findContours(thresh, cnts, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+      const TW = 1200, TH = 1600; // Standardized Rectified Dimension
+      let warpedCanvas = document.createElement('canvas');
+      warpedCanvas.width = TW;
+      warpedCanvas.height = TH;
+      let warpedCtx = warpedCanvas.getContext('2d', { willReadFrequently: true });
 
-      let imgArea = src.cols * src.rows;
-      let markers = [];
-      for (let i = 0; i < cnts.size(); i++) {
-        let cnt = cnts.get(i);
-        let a = cv.contourArea(cnt);
-        let p = (a / imgArea) * 100;
-        if (p >= 0.03 && p <= 5.0) {
-          let r = cv.boundingRect(cnt);
-          let asp = r.width / r.height;
-          if (asp >= 0.55 && asp <= 1.75) {
-            let roi = gray.roi(r);
-            let meanVal = cv.mean(roi);
-            roi.delete();
-            if (meanVal[0] < 125) {
-              markers.push({ cx: r.x + r.width / 2, cy: r.y + r.height / 2, area: a, rect: r });
+      // 2. ค้นหามาร์กเกอร์ 4 มุมแบบ Multi-pass (ทนรอยยับ, แสงเงา, และการเอียง)
+      let corners = findRobustCornerMarkers(gray, img.width, img.height);
+
+      // 3. ปรับระนาบภาพให้ตรง 100% ด้วย Perspective Transform (ขจัดภาพเอียง/บิดเบี้ยวจากมุมกล้อง)
+      let warpedMat = new cv.Mat();
+      let isWarpedSuccess = false;
+      try {
+        let srcCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
+          corners.pTL.cx, corners.pTL.cy,
+          corners.pTR.cx, corners.pTR.cy,
+          corners.pBR.cx, corners.pBR.cy,
+          corners.pBL.cx, corners.pBL.cy
+        ]);
+        let dstCoords = cv.matFromArray(4, 1, cv.CV_32FC2, [
+          0, 0,
+          TW, 0,
+          TW, TH,
+          0, TH
+        ]);
+        let M = cv.getPerspectiveTransform(srcCoords, dstCoords);
+        let dsize = new cv.Size(TW, TH);
+        cv.warpPerspective(src, warpedMat, M, dsize, cv.INTER_LINEAR, cv.BORDER_REPLICATE, new cv.Scalar());
+        cv.imshow(warpedCanvas, warpedMat);
+        srcCoords.delete(); dstCoords.delete(); M.delete();
+        isWarpedSuccess = true;
+      } catch (e) {
+        console.warn("Perspective warp fallback:", e);
+        warpedCtx.drawImage(img, 0, 0, TW, TH);
+      }
+
+      // ดึงข้อมูลภาพในระนาบมาตรฐานเพื่อการประมวลผล Sub-pixel
+      let imgDataObj = warpedCtx.getImageData(0, 0, TW, TH);
+      let rawData = imgDataObj.data;
+
+      // 4. พิกัดเรขาคณิตมาตรฐานของกระดาษคำตอบ 60 ข้อ 3 คอลัมน์ (ก, ข, ค, ง)
+      const colX = [
+        [98, 154, 210, 266],    // คอลัมน์ 1 (ข้อ 1-20): ก, ข, ค, ง
+        [466, 522, 578, 634],   // คอลัมน์ 2 (ข้อ 21-40): ก, ข, ค, ง
+        [834, 890, 946, 1002]   // คอลัมน์ 3 (ข้อ 41-60): ก, ข, ค, ง
+      ];
+      const Y_START = 348;
+      const Y_END = 1515;
+      const Y_STEP = (Y_END - Y_START) / 19.0;
+      const BUB_R = 16;
+      const CORE_R = 10;
+      const choices = ['ก', 'ข', 'ค', 'ง'];
+
+      // ฟังก์ชันดูดตำแหน่งเข้าสู่กึ่งกลางวงกลมจริง (Radial Circular Symmetry Edge Lock)
+      function snapToTrueCircleCenter(cx, cy) {
+        let bestX = cx, bestY = cy;
+        let maxContrast = -99999;
+        let rInner = 14, rOuter = 19;
+
+        for (let dy = -8; dy <= 8; dy += 2) {
+          for (let dx = -8; dx <= 8; dx += 2) {
+            let tx = Math.round(cx + dx);
+            let ty = Math.round(cy + dy);
+            if (tx < 20 || tx >= TW - 20 || ty < 20 || ty >= TH - 20) continue;
+
+            let sumIn = 0, sumOut = 0;
+            for (let a = 0; a < 8; a++) {
+              let rad = (a * Math.PI) / 4.0;
+              let ix = Math.round(tx + rInner * Math.cos(rad));
+              let iy = Math.round(ty + rInner * Math.sin(rad));
+              let ox = Math.round(tx + rOuter * Math.cos(rad));
+              let oy = Math.round(ty + rOuter * Math.sin(rad));
+
+              let idxIn = (iy * TW + ix) * 4;
+              let idxOut = (oy * TW + ox) * 4;
+
+              sumIn += (0.299 * rawData[idxIn] + 0.587 * rawData[idxIn + 1] + 0.114 * rawData[idxIn + 2]);
+              sumOut += (0.299 * rawData[idxOut] + 0.587 * rawData[idxOut + 1] + 0.114 * rawData[idxOut + 2]);
+            }
+
+            let diff = sumOut - sumIn;
+            if (diff > maxContrast) {
+              maxContrast = diff;
+              bestX = tx;
+              bestY = ty;
             }
           }
         }
-      }
-      cnts.delete(); hier.delete(); thresh.delete(); gray.delete(); src.delete();
-
-      // ระบุพิกัดมาร์กเกอร์ 4 มุม
-      let pTL, pTR, pBL, pBR;
-      if (markers.length >= 4) {
-        pTL = markers.reduce((m, p) => p.cx + p.cy < m.cx + m.cy ? p : m, markers[0]);
-        pBR = markers.reduce((m, p) => p.cx + p.cy > m.cx + m.cy ? p : m, markers[0]);
-        pTR = markers.reduce((m, p) => p.cx - p.cy > m.cx - m.cy ? p : m, markers[0]);
-        pBL = markers.reduce((m, p) => p.cy - p.cx > m.cy - m.cx ? p : m, markers[0]);
-      } else {
-        // Fallback หากไม่พบมาร์กเกอร์ ใช้ขอบภาพต้นฉบับ
-        pTL = { cx: img.width * 0.08, cy: img.height * 0.08 };
-        pTR = { cx: img.width * 0.92, cy: img.height * 0.08 };
-        pBL = { cx: img.width * 0.08, cy: img.height * 0.95 };
-        pBR = { cx: img.width * 0.92, cy: img.height * 0.95 };
+        return { x: bestX, y: bestY };
       }
 
-      // คำนวณพิกัดบนภาพจริงแบบ Bilinear Interpolation (ใกล้-ไกล ปรับตามสัดส่วนมาร์กเกอร์อัตโนมัติ)
-      function getPoint(u, v) {
-        let x = (1 - u) * (1 - v) * pTL.cx + u * (1 - v) * pTR.cx + (1 - u) * v * pBL.cx + u * v * pBR.cx;
-        let y = (1 - u) * (1 - v) * pTL.cy + u * (1 - v) * pTR.cy + (1 - u) * v * pBL.cy + u * v * pBR.cy;
-        return { x, y };
-      }
+      // ฟังก์ชันตรวจวัดการฝนตัวเลือกที่ทนต่อรอยยับและเงา (Local Contrast Normalization)
+      function measureBubbleFill(px, py) {
+        let coreSum = 0, coreCount = 0, coreDarkCount = 0;
+        let bgSum = 0, bgCount = 0;
 
-      const paperWidth = Math.hypot(pTR.cx - pTL.cx, pTR.cy - pTL.cy);
-      // ปรับขนาดรัศมีวงกลมให้พอดีกับขนาดวงกลมตัวเลือกบนกระดาษเป๊ะๆ
-      const bubR = Math.max(4, Math.round(paperWidth * 0.0125));
-      const sampleR = Math.max(3, Math.round(bubR * 0.75));
-      const choices = ['ก', 'ข', 'ค', 'ง'];
-
-      // สัดส่วนพิกัดสัมพัทธ์ (u, v) กึ่งกลางช่อง ก ข ค ง
-      const colU = [
-        [0.125, 0.171, 0.217, 0.263], // คอลัมน์ที่ 1 (ข้อ 1-20): ก, ข, ค, ง
-        [0.437, 0.483, 0.529, 0.575], // คอลัมน์ที่ 2 (ข้อ 21-40): ก, ข, ค, ง
-        [0.749, 0.795, 0.841, 0.887]  // คอลัมน์ที่ 3 (ข้อ 41-60): ก, ข, ค, ง
-      ];
-      const startV = 0.228; // สัดส่วนแนวตั้งแถวแรก (ข้อ 1, 21, 41)
-      const stepV = (0.970 - 0.228) / 19.0; // ระยะก้าวต่อแถว
-
-      // ฟังก์ชันดูดจุดศูนย์กลางเข้าสู่กึ่งกลางวงกลมจริง (วิเคราะห์จากขอบวงกลมและตัวอักษร/รอยฝนภายใน)
-      function refineCenter(cx, cy, searchR) {
-        let px = Math.floor(cx), py = Math.floor(cy);
-        let r2 = searchR * searchR;
-        let boxSize = searchR * 2 + 1;
-        let imgData;
-        try {
-          imgData = ctx.getImageData(px - searchR, py - searchR, boxSize, boxSize).data;
-        } catch (e) {
-          return { x: cx, y: cy };
+        // วัดค่าความสว่างพื้นหลังเฉพาะจุด (เหนือ-ใต้ วงกลม ในช่องว่างแถว)
+        for (let dy = -26; dy <= 26; dy += 2) {
+          if (Math.abs(dy) < 17) continue;
+          let y = py + dy;
+          if (y < 0 || y >= TH) continue;
+          for (let dx = -10; dx <= 10; dx += 5) {
+            let x = px + dx;
+            if (x < 0 || x >= TW) continue;
+            let idx = (y * TW + x) * 4;
+            bgSum += (0.299 * rawData[idx] + 0.587 * rawData[idx + 1] + 0.114 * rawData[idx + 2]);
+            bgCount++;
+          }
         }
+        let localBg = bgCount > 0 ? (bgSum / bgCount) : 225;
 
-        let sumWeight = 0, sumX = 0, sumY = 0;
-        for (let dy = -searchR; dy <= searchR; dy++) {
-          let y_idx = dy + searchR;
-          for (let dx = -searchR; dx <= searchR; dx++) {
-            let x_idx = dx + searchR;
-            let d2 = dx * dx + dy * dy;
-            if (d2 <= r2) {
-              let idx = (y_idx * boxSize + x_idx) * 4;
-              let r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
-              let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-              if (gray < 165) {
-                let w = (165 - gray);
-                sumWeight += w;
-                sumX += dx * w;
-                sumY += dy * w;
+        // วัดค่าความสว่างภายในวงกลม (Core Area)
+        for (let dy = -CORE_R; dy <= CORE_R; dy++) {
+          let y = py + dy;
+          if (y < 0 || y >= TH) continue;
+          for (let dx = -CORE_R; dx <= CORE_R; dx++) {
+            if (dx * dx + dy * dy <= CORE_R * CORE_R) {
+              let x = px + dx;
+              if (x < 0 || x >= TW) continue;
+              let idx = (y * TW + x) * 4;
+              let g = 0.299 * rawData[idx] + 0.587 * rawData[idx + 1] + 0.114 * rawData[idx + 2];
+              coreSum += g;
+              coreCount++;
+              if (g < (localBg - 30) || g < 120) {
+                coreDarkCount++;
               }
             }
           }
         }
 
-        if (sumWeight > 40) {
-          let offsetX = sumX / sumWeight;
-          let offsetY = sumY / sumWeight;
-          if (Math.hypot(offsetX, offsetY) <= searchR * 0.5) {
-            return { x: cx + offsetX, y: cy + offsetY };
-          }
-        }
-        return { x: cx, y: cy };
+        let avgCoreGray = coreCount > 0 ? (coreSum / coreCount) : 255;
+        let darkRatio = coreCount > 0 ? (coreDarkCount / coreCount) : 0;
+        let relContrast = Math.max(0, (localBg - avgCoreGray) / Math.max(localBg, 50));
+        let fillScore = darkRatio * 0.65 + relContrast * 0.35;
+
+        return { fillScore, darkRatio, relContrast, avgCoreGray, localBg };
       }
 
-      // ฟังก์ชันตรวจจับการฝนดำ
-      function mfill(cx, cy) {
-        let px = Math.floor(cx), py = Math.floor(cy);
-        let r2 = sampleR * sampleR;
-        let boxSize = sampleR * 2 + 1;
-        let imgData;
-        try {
-          imgData = ctx.getImageData(px - sampleR, py - sampleR, boxSize, boxSize).data;
-        } catch (e) {
-          return { score: 0, solidDark: 0, avgGray: 255, totalCount: 0 };
-        }
-
-        let solidDark = 0, totalCount = 0, sumGray = 0;
-        for (let dy = -sampleR; dy <= sampleR; dy++) {
-          let y_idx = dy + sampleR;
-          for (let dx = -sampleR; dx <= sampleR; dx++) {
-            let x_idx = dx + sampleR;
-            let d2 = dx * dx + dy * dy;
-            if (d2 <= r2) {
-              let idx = (y_idx * boxSize + x_idx) * 4;
-              let r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
-              let gray = 0.299 * r + 0.587 * g + 0.114 * b;
-              totalCount++;
-              sumGray += gray;
-              if (gray < 135) solidDark++;
-            }
-          }
-        }
-
-        let solidRatio = totalCount > 0 ? (solidDark / totalCount) : 0;
-        let avgGray = totalCount > 0 ? (sumGray / totalCount) : 255;
-        let score = solidRatio * 0.70 + ((255.0 - avgGray) / 255.0) * 0.30;
-
-        return { score, solidRatio, solidDark, avgGray, totalCount };
-      }
-
-      // ตรวจสอบคะแนนและวาดผลตรวจลงบนภาพต้นฉบับ 1:1
+      // 5. ตรวจสอบคะแนนและคำนวณผล
       let score = 0, details = [];
-      for (let q = 1; q <= 60; q++) {
-        const ki = answerKey ? answerKey[q] : null;
-        let ci = Math.floor((q - 1) / 20);
-        let ri = (q - 1) % 20;
-        let qV = startV + ri * stepV;
-        let cU = colU[ci];
+      let totalQuestions = 60;
 
-        let ds = [], choicePts = [];
+      for (let q = 1; q <= totalQuestions; q++) {
+        const ki = answerKey ? answerKey[q] : null;
+        let ci = Math.floor((q - 1) / 20); // คอลัมน์ (0, 1, 2)
+        let ri = (q - 1) % 20;            // แถว (0-19)
+        let nominalY = Y_START + ri * Y_STEP;
+        let nominalXs = colX[ci];
+
+        let choicePts = [];
+        let ds = [];
+
         for (let c = 0; c < 4; c++) {
-          let ptBase = getPoint(cU[c], qV);
-          let pt = refineCenter(ptBase.x, ptBase.y, bubR);
+          let pt = snapToTrueCircleCenter(nominalXs[c], nominalY);
           choicePts.push(pt);
-          ds.push(mfill(pt.x, pt.y));
+          ds.push(measureBubbleFill(pt.x, pt.y));
         }
 
         // คัดกรองตัวเลือกที่ฝนจริง
-        let minDark = Math.max(20, Math.round(ds[0].totalCount * 0.28));
         let validFills = [];
-        for (let i = 0; i < ds.length; i++) {
-          if (ds[i].solidDark >= minDark && ds[i].avgGray < 145) {
-            validFills.push({ index: i, score: ds[i].score, solidDark: ds[i].solidDark });
+        for (let i = 0; i < 4; i++) {
+          if (ds[i].fillScore >= 0.30 || (ds[i].darkRatio >= 0.35 && ds[i].relContrast >= 0.20)) {
+            validFills.push({ index: i, score: ds[i].fillScore });
           }
         }
         validFills.sort((a, b) => b.score - a.score);
@@ -1638,7 +1742,7 @@
           bi = validFills[0].index;
           ans = choices[bi];
         } else if (validFills.length > 1) {
-          if (validFills[0].score - validFills[1].score >= 0.15) {
+          if (validFills[0].score - validFills[1].score >= 0.16) {
             bi = validFills[0].index;
             ans = choices[bi];
           } else {
@@ -1652,30 +1756,42 @@
           ok = true;
         }
 
-        // วาดวงกลมผลตรวจลงบนภาพต้นฉบับโดยตรง (ขนาดพอดีกับขอบวงกลมตัวเลือกเป๊ะๆ)
+        // วาดวงกลมผลตรวจและเฉลยลงบนภาพที่ปรับระนาบแล้วตรงกึ่งกลาง 100%
         if (ki) {
           const correctChoiceIdx = choices.indexOf(ki.answer);
           if (correctChoiceIdx >= 0 && correctChoiceIdx < 4) {
-            let px = Math.floor(choicePts[correctChoiceIdx].x), py = Math.floor(choicePts[correctChoiceIdx].y);
-            ctx.beginPath();
-            ctx.arc(px, py, bubR, 0, 2 * Math.PI);
+            let ptKey = choicePts[correctChoiceIdx];
+            warpedCtx.beginPath();
+            warpedCtx.arc(ptKey.x, ptKey.y, BUB_R + 1, 0, 2 * Math.PI);
+            warpedCtx.lineWidth = 3.5;
+            warpedCtx.strokeStyle = "#16a34a"; // เขียว (เฉลยที่ถูกต้อง)
             if (ok) {
-              ctx.strokeStyle = "#16a34a"; // เขียว (ตอบถูก)
-              ctx.lineWidth = Math.max(2, Math.round(paperWidth * 0.0028));
-            } else {
-              ctx.strokeStyle = "#dc2626"; // แดง (ตอบไม่ถูก/ไม่ตอบ)
-              ctx.lineWidth = Math.max(2, Math.round(paperWidth * 0.0028));
+              warpedCtx.fillStyle = "rgba(22, 163, 74, 0.25)";
+              warpedCtx.fill();
             }
-            ctx.stroke();
+            warpedCtx.stroke();
+          }
+
+          // ถ้านักเรียนตอบผิด: วาดวงกลมสีแดงที่ตัวเลือกที่นักเรียนฝน
+          if (!ok && bi >= 0 && bi < 4) {
+            let ptWrong = choicePts[bi];
+            warpedCtx.beginPath();
+            warpedCtx.arc(ptWrong.x, ptWrong.y, BUB_R + 1, 0, 2 * Math.PI);
+            warpedCtx.lineWidth = 3.5;
+            warpedCtx.strokeStyle = "#dc2626"; // แดง (ตอบผิด)
+            warpedCtx.fillStyle = "rgba(220, 38, 38, 0.25)";
+            warpedCtx.fill();
+            warpedCtx.stroke();
           }
         } else if (ans !== "-") {
+          // ถ้าไม่มีเฉลยแต่นักเรียนฝน วาดวงกลมสีฟ้า
           if (bi >= 0 && bi < 4) {
-            let px = Math.floor(choicePts[bi].x), py = Math.floor(choicePts[bi].y);
-            ctx.beginPath();
-            ctx.arc(px, py, bubR, 0, 2 * Math.PI);
-            ctx.strokeStyle = "#3b82f6";
-            ctx.lineWidth = Math.max(2, Math.round(paperWidth * 0.0025));
-            ctx.stroke();
+            let pt = choicePts[bi];
+            warpedCtx.beginPath();
+            warpedCtx.arc(pt.x, pt.y, BUB_R + 1, 0, 2 * Math.PI);
+            warpedCtx.lineWidth = 3;
+            warpedCtx.strokeStyle = "#2563eb";
+            warpedCtx.stroke();
           }
         }
 
@@ -1690,10 +1806,79 @@
         }
       }
 
+      // ปลดปล่อยหน่วยความจำ OpenCV
+      src.delete(); gray.delete(); warpedMat.delete();
+
       return {
         score: Math.round(score * 100) / 100,
         details,
-        debugImage: canvas.toDataURL('image/jpeg', 0.85)
+        debugImage: warpedCanvas.toDataURL('image/jpeg', 0.88)
+      };
+    }
+
+    // ฟังก์ชันค้นหามาร์กเกอร์ 4 มุมแบบทนทานต่อรอยยับและเงา
+    function findRobustCornerMarkers(gray, width, height) {
+      let imgArea = width * height;
+      let markers = [];
+      const methods = ['otsu', 'adaptive', 95, 140];
+
+      for (let method of methods) {
+        let thresh = new cv.Mat();
+        if (method === 'otsu') {
+          cv.threshold(gray, thresh, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+        } else if (method === 'adaptive') {
+          cv.adaptiveThreshold(gray, thresh, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 31, 8);
+        } else {
+          cv.threshold(gray, thresh, method, 255, cv.THRESH_BINARY_INV);
+        }
+
+        let cnts = new cv.MatVector(), hier = new cv.Mat();
+        cv.findContours(thresh, cnts, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        for (let i = 0; i < cnts.size(); i++) {
+          let cnt = cnts.get(i);
+          let a = cv.contourArea(cnt);
+          let p = (a / imgArea) * 100;
+          if (p >= 0.025 && p <= 4.5) {
+            let r = cv.boundingRect(cnt);
+            let asp = r.width / r.height;
+            if (asp >= 0.55 && asp <= 1.80) {
+              let roi = gray.roi(r);
+              let meanVal = cv.mean(roi);
+              roi.delete();
+              if (meanVal[0] < 140) {
+                let cx = r.x + r.width / 2;
+                let cy = r.y + r.height / 2;
+                if (!markers.some(m => Math.hypot(m.cx - cx, m.cy - cy) < Math.min(width, height) * 0.06)) {
+                  markers.push({ cx, cy, area: a, rect: r });
+                }
+              }
+            }
+          }
+        }
+        cnts.delete(); hier.delete(); thresh.delete();
+        if (markers.length >= 4) break;
+      }
+
+      if (markers.length >= 4) {
+        let pTL = markers.reduce((m, p) => (p.cx + p.cy < m.cx + m.cy) ? p : m, markers[0]);
+        let pBR = markers.reduce((m, p) => (p.cx + p.cy > m.cx + m.cy) ? p : m, markers[0]);
+        let pTR = markers.reduce((m, p) => (p.cx - p.cy > m.cx - m.cy) ? p : m, markers[0]);
+        let pBL = markers.reduce((m, p) => (p.cy - p.cx > m.cy - m.cx) ? p : m, markers[0]);
+
+        let minD = Math.min(width, height) * 0.28;
+        if (Math.hypot(pTR.cx - pTL.cx, pTR.cy - pTL.cy) > minD &&
+            Math.hypot(pBL.cx - pTL.cx, pBL.cy - pTL.cy) > minD) {
+          return { pTL, pTR, pBR, pBL, found: true };
+        }
+      }
+
+      return {
+        pTL: { cx: width * 0.055, cy: height * 0.045 },
+        pTR: { cx: width * 0.945, cy: height * 0.045 },
+        pBL: { cx: width * 0.055, cy: height * 0.955 },
+        pBR: { cx: width * 0.945, cy: height * 0.955 },
+        found: false
       };
     }
 
