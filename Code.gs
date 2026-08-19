@@ -1,24 +1,66 @@
 /**
  * ระบบตรวจข้อสอบโรงเรียนบ้านสันดาบ (Ban Sandab School OMR System)
  * Google Apps Script Backend — จัดการคลังเฉลยใน Google Sheets
- * ใช้คู่กับ Index.html (Client-side OMR)
+ * รองรับทั้ง Google Apps Script Web App และ Standalone Web / GitHub Pages API
  */
 
 function doGet(e) {
+  // หากเรียกผ่าน API (เช่น จาก GitHub Pages)
+  if (e && e.parameter && e.parameter.action) {
+    let result = {};
+    if (e.parameter.action === 'getExamKeys') {
+      result = getExamKeys();
+    } else if (e.parameter.action === 'checkConnection') {
+      result = checkConnection();
+    } else {
+      result = { status: 'error', message: 'Unknown action: ' + e.parameter.action };
+    }
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // หากเปิดตรงๆ ผ่านเบราว์เซอร์
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('ระบบตรวจข้อสอบโรงเรียนบ้านสันดาบ')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+function doPost(e) {
+  let result = { status: 'error', message: 'No payload' };
+  try {
+    let contents = {};
+    if (e && e.postData && e.postData.contents) {
+      contents = JSON.parse(e.postData.contents);
+    } else if (e && e.parameter) {
+      contents = e.parameter;
+    }
+
+    if (contents.action === 'syncAllExamKeys') {
+      let exams = contents.data;
+      if (typeof exams === 'string') exams = JSON.parse(exams);
+      result = syncAllExamKeys(exams);
+    } else if (contents.action === 'saveExamKey') {
+      let exam = contents.data;
+      if (typeof exam === 'string') exam = JSON.parse(exam);
+      result = saveExamKey(exam);
+    } else if (contents.action === 'getExamKeys') {
+      result = getExamKeys();
+    }
+  } catch (err) {
+    result = { status: 'error', message: err.toString() };
+  }
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // ==========================================
-// ฟังก์ชันเชื่อมต่อฐานข้อมูล
+// ฟังก์ชันเชื่อมต่อฐานข้อมูล Google Sheets
 // ==========================================
 function getDatabase() {
-  // ใช้ Active Spreadsheet (Container-bound) ก่อน
   let ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) {
-    // Fallback: ใช้ ID โดยตรง (Standalone)
+    // Fallback ID (ปรับเปลี่ยนเป็น Google Sheet ID ของคุณได้)
     const SHEET_ID = '1OOb05Fb2VnaFo8UYVwrCSOn6vXWofvXBGdv9yScEQek';
     ss = SpreadsheetApp.openById(SHEET_ID);
   }
@@ -28,7 +70,6 @@ function getDatabase() {
 function getOrCreateSheet(ss, name, headers) {
   let sheet = ss.getSheetByName(name);
   if (!sheet) {
-    // ลองค้นหาชื่อคล้ายกัน
     const sheets = ss.getSheets();
     for (let s of sheets) {
       if (s.getName().trim().toLowerCase().includes(name.toLowerCase())) {
@@ -71,7 +112,9 @@ function getExamKeys() {
       const row = rows[i];
       if (!row[0] || !row[2]) continue; // ข้ามแถวว่าง
       let answerKey = {};
-      try { answerKey = JSON.parse(row[4] || '{}'); } catch(e) {}
+      try { 
+        answerKey = typeof row[4] === 'string' ? JSON.parse(row[4] || '{}') : (row[4] || {}); 
+      } catch(e) {}
       exams.push({
         subject: String(row[0] || ''),
         level: String(row[1] || ''),
@@ -115,7 +158,7 @@ function saveExamKey(examData) {
 }
 
 // ==========================================
-// 3. ลบเฉลยจาก Google Sheets (ตาม index)
+// 3. ลบเฉลยจาก Google Sheets
 // ==========================================
 function deleteExamKey(index) {
   try {
@@ -123,14 +166,14 @@ function deleteExamKey(index) {
     const headers = ['รายวิชา', 'ระดับชั้น', 'จำนวนข้อ', 'คะแนนเต็ม', 'เฉลย (JSON)', 'วันที่สร้าง'];
     const sheet = getOrCreateSheet(ss, 'คลังเฉลย', headers);
 
-    const rowToDelete = Number(index) + 2; // +1 header, +1 for 1-indexed
+    const rowToDelete = Number(index) + 2;
     const lastRow = sheet.getLastRow();
 
     if (rowToDelete >= 2 && rowToDelete <= lastRow) {
       sheet.deleteRow(rowToDelete);
       return { status: 'success', message: 'ลบเฉลยเรียบร้อย' };
     } else {
-      return { status: 'error', message: 'ไม่พบแถวที่ต้องการลบ (row ' + rowToDelete + ', lastRow ' + lastRow + ')' };
+      return { status: 'error', message: 'ไม่พบแถวที่ต้องการลบ' };
     }
   } catch (error) {
     return { status: 'error', message: error.toString() };
