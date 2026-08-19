@@ -995,6 +995,7 @@
     const STORAGE_BACKUP_KEY = 'BAN_SANDAAP_EXAM_KEYS_BACKUP';
     const STORAGE_TRASH_KEY = 'BAN_SANDAAP_EXAM_KEYS_TRASH';
     const API_URL_KEY = 'OMR_CUSTOM_API_URL';
+    const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbwOrfku1r6m0dUbHMDPuATToi-o6DM4fvdTlcU9CIhydq8dID856Tc5j8LcwgRbs0Pp/exec';
 
     let openCvReady = false;
     let savedExams = [];
@@ -1110,17 +1111,17 @@
           })
           .getExamKeys();
       } else {
-        const customUrl = localStorage.getItem(API_URL_KEY);
+        const customUrl = localStorage.getItem(API_URL_KEY) || DEFAULT_API_URL;
         if (customUrl) {
-          if (dbText) dbText.innerText = 'Cloud API (กำลังซิงค์...)';
+          if (dbText) dbText.innerText = 'Google Sheets (กำลังซิงค์...)';
           fetch(customUrl + (customUrl.includes('?') ? '&' : '?') + 'action=getExamKeys')
             .then(r => r.json())
             .then(res => {
               if (res && res.status === 'success') {
                 handleCloudSyncMerge(res.data || []);
                 if (dbBadge) dbBadge.classList.add('ready');
-                if (dbText) dbText.innerText = 'Cloud Connected';
-                if (manualTrigger) showToast('ซิงค์ผ่าน Cloud API สำเร็จ', 'success');
+                if (dbText) dbText.innerText = 'Google Sheets';
+                if (manualTrigger) showToast('ซิงค์กับ Google Sheets สำเร็จ', 'success');
               } else {
                 if (dbText) dbText.innerText = 'LocalStorage';
               }
@@ -1185,13 +1186,15 @@
           })
           .syncAllExamKeys(savedExams);
       } else {
-        const customUrl = localStorage.getItem(API_URL_KEY);
+        const customUrl = localStorage.getItem(API_URL_KEY) || DEFAULT_API_URL;
         if (customUrl && savedExams.length >= 0) {
           fetch(customUrl, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'syncAllExamKeys', data: savedExams })
+          }).then(() => {
+            console.log("Pushed to Cloud API successfully");
           }).catch(e => console.warn(e));
         }
       }
@@ -2123,18 +2126,14 @@
     function initSettingsUI() {
       const box = document.getElementById('settings-status-box');
       const inp = document.getElementById('custom-api-url');
-      if (inp) inp.value = localStorage.getItem(API_URL_KEY) || '';
+      const currentUrl = localStorage.getItem(API_URL_KEY) || DEFAULT_API_URL;
+      if (inp) inp.value = currentUrl;
 
       if (box) {
         if (isGAS) {
           box.innerHTML = '<span style="color:#15803d;font-weight:600;"><i class="fa-solid fa-circle-check"></i> ทำงานบน Google Apps Script โดยตรง</span> — ซิงค์ข้อมูลกับ Google Sheets อัตโนมัติ';
         } else {
-          const currentUrl = localStorage.getItem(API_URL_KEY);
-          if (currentUrl) {
-            box.innerHTML = `<span style="color:#15803d;font-weight:600;"><i class="fa-solid fa-cloud-check"></i> เชื่อมต่อ Web App API:</span> <span style="word-break:break-all;font-size:12px;">${currentUrl}</span>`;
-          } else {
-            box.innerHTML = '<span style="color:#2563eb;font-weight:600;"><i class="fa-solid fa-hard-drive"></i> บันทึกในเครื่อง (LocalStorage)</span> — บันทึกถาวรในเบราว์เซอร์เครื่องนี้ (หรือกรอก Web App URL ด้านล่างเพื่อซิงค์ขึ้น Cloud)';
-          }
+          box.innerHTML = `<span style="color:#15803d;font-weight:600;"><i class="fa-solid fa-cloud-check"></i> เชื่อมต่อ Google Sheets Web App:</span> <span style="word-break:break-all;font-size:12px;color:#0369a1;">${currentUrl}</span>`;
         }
       }
     }
