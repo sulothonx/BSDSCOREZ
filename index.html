@@ -634,10 +634,13 @@
         <div class="status-dot" id="ai-status-dot"></div>
         <span id="ai-status-text">AI กำลังโหลด...</span>
       </div>
-      <div class="status-badge" id="db-status-badge">
+      <div class="status-badge" id="db-status-badge" style="cursor:pointer;" onclick="openModal('modal-cloud-settings')" title="คลิกเพื่อดูสถานะและตั้งค่าฐานข้อมูล">
         <i class="fa-solid fa-database"></i>
         <span id="db-status-text">LocalStorage</span>
       </div>
+      <button class="btn btn-sm" style="color:white;border:1px solid rgba(255,255,255,0.4);background:rgba(255,255,255,0.15);cursor:pointer;border-radius:6px;padding:4px 10px;font-size:12.5px;" onclick="openModal('modal-cloud-settings')">
+        <i class="fa-solid fa-gear"></i> ตั้งค่า Cloud
+      </button>
     </div>
   </nav>
 
@@ -867,11 +870,23 @@
 
       <!-- Saved Exam Keys List -->
       <div class="card">
-        <div class="card-header">
-          <div class="card-title">
+        <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+          <div class="card-title" style="display:flex;align-items:center;gap:8px;">
             <i class="fa-solid fa-book-bookmark" style="color:var(--primary);"></i> รายการชุดเฉลยที่บันทึกไว้
+            <span class="badge badge-primary" id="badge-exam-count">0 ชุด</span>
           </div>
-          <span class="badge badge-primary" id="badge-exam-count">0 ชุด</span>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="syncWithGoogleSheets(true)" title="กดเพื่อซิงค์ข้อมูลกับ Google Sheets ทันที">
+              <i class="fa-solid fa-rotate"></i> 🔄 ซิงค์ Google Sheets
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="exportExamKeysBackup()" title="ดาวน์โหลดไฟล์สำรองข้อมูลเฉลยเก็บไว้ในเครื่อง">
+              <i class="fa-solid fa-file-arrow-down"></i> 📤 สำรองไฟล์เฉลย (JSON)
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="triggerImportExamKeys()" title="นำเข้าไฟล์เฉลยที่เคยสำรองไว้">
+              <i class="fa-solid fa-file-arrow-up"></i> 📥 นำเข้าไฟล์เฉลย
+            </button>
+            <input type="file" id="import-file-input" accept=".json" style="display:none;" onchange="onImportFileSelected(event)">
+          </div>
         </div>
 
         <div class="table-container">
@@ -927,6 +942,46 @@
     </div>
   </div>
 
+  <!-- Cloud & Database Settings Modal -->
+  <div class="modal-overlay" id="modal-cloud-settings">
+    <div class="modal-card" style="max-width:580px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:10px;border-bottom:1.5px solid #fecdd3;">
+        <h3 style="font-size:17px;font-weight:600;color:var(--primary-dark);display:flex;align-items:center;gap:8px;">
+          <i class="fa-solid fa-cloud-arrow-up"></i> ตั้งค่าการเชื่อมต่อฐานข้อมูล & ซิงค์
+        </h3>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-cloud-settings')"><i class="fa-solid fa-xmark"></i> ปิด</button>
+      </div>
+      
+      <div style="font-size:13.5px;color:#475569;margin-bottom:14px;line-height:1.6;background:#fef2f2;padding:10px 14px;border-radius:8px;border:1px solid #fee2e2;">
+        <i class="fa-solid fa-shield-halved" style="color:var(--primary);"></i> <strong>ระบบรักษาความปลอดภัยของชุดเฉลย:</strong><br>
+        ชุดเฉลยข้อสอบจะถูกบันทึกไว้ในเบราว์เซอร์เครื่องนี้อย่างถาวร (LocalStorage) และมีระบบสำรองข้อมูลอัตโนมัติ พร้อมซิงค์ขึ้น <strong>Google Sheets</strong> บนคลาวด์ ชุดเฉลยจะไม่หายและจะนำออกได้ก็ต่อเมื่อคุณกดยืนยันลบด้วยตัวเองเท่านั้น
+      </div>
+
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label" style="font-weight:600;">สถานะการเชื่อมต่อปัจจุบัน:</label>
+        <div id="settings-status-box" style="padding:10px 14px;border-radius:8px;background:#f8fafc;border:1px solid #cbd5e1;font-size:13.5px;color:#334155;">
+          ตรวจจับอัตโนมัติ...
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:14px;">
+        <label class="form-label" style="font-weight:600;">Google Apps Script Web App URL (สำหรับ GitHub Pages / Standalone Web):</label>
+        <input type="url" id="custom-api-url" class="form-control" placeholder="https://script.google.com/macros/s/.../exec">
+        <small style="color:#64748b;font-size:12px;display:block;margin-top:4px;">
+          * หากใช้งานผ่าน Google Apps Script โดยตรงอยู่แล้ว ไม่ต้องใส่ช่องนี้ ระบบจะเชื่อมต่อ Google Sheets ให้อัตโนมัติ
+        </small>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:20px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-outline" onclick="testCloudConnection()"><i class="fa-solid fa-vial"></i> ทดสอบเชื่อมต่อ</button>
+        <div style="display:flex;gap:8px;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-cloud-settings')">ปิด</button>
+          <button type="button" class="btn btn-primary" onclick="saveCloudSettings()"><i class="fa-solid fa-floppy-disk"></i> บันทึกการตั้งค่า</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Alert -->
   <div id="toast">
     <i id="toast-icon" class="fa-solid fa-circle-info"></i>
@@ -937,6 +992,10 @@
   <script>
     const isGAS = typeof google !== 'undefined' && google.script && google.script.run;
     const STORAGE_KEY = 'BAN_SANDAAP_EXAM_KEYS';
+    const STORAGE_BACKUP_KEY = 'BAN_SANDAAP_EXAM_KEYS_BACKUP';
+    const STORAGE_TRASH_KEY = 'BAN_SANDAAP_EXAM_KEYS_TRASH';
+    const API_URL_KEY = 'OMR_CUSTOM_API_URL';
+
     let openCvReady = false;
     let savedExams = [];
     let currentExamAnswerKey = {};
@@ -977,35 +1036,18 @@
     document.addEventListener("DOMContentLoaded", function () {
       renderAnswerKeySetup();
       loadExamsFromStorage();
-      const dbBadge = document.getElementById('db-status-badge');
-      const dbText = document.getElementById('db-status-text');
-
-      if (isGAS) {
-        if (dbBadge) { dbBadge.classList.add('ready'); }
-        if (dbText) dbText.innerText = 'Google Sheets';
-        google.script.run
-          .withSuccessHandler(function (res) {
-            if (res && res.status === 'success' && res.data) {
-              savedExams = res.data;
-              saveExamsToLocalStorage();
-              renderExamListTable();
-              refreshScanExamDropdown();
-              showToast('ซิงค์เฉลยจาก Google Sheets สำเร็จ', 'success');
-            }
-          })
-          .withFailureHandler(function (err) {
-            console.warn("GAS Sync failed:", err);
-          })
-          .getExamKeys();
-      } else {
-        if (dbText) dbText.innerText = 'LocalStorage';
-      }
+      initSettingsUI();
+      syncWithGoogleSheets(false);
     });
 
-    // Local Storage Management
+    // Local Storage Management (Dual-layer Auto Backup)
     function saveExamsToLocalStorage() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(savedExams));
+        const json = JSON.stringify(savedExams);
+        localStorage.setItem(STORAGE_KEY, json);
+        if (savedExams.length > 0) {
+          localStorage.setItem(STORAGE_BACKUP_KEY, json);
+        }
       } catch (e) {
         console.error("LocalStorage save error:", e);
       }
@@ -1013,13 +1055,146 @@
 
     function loadExamsFromStorage() {
       try {
+        let loaded = [];
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) savedExams = JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            loaded = parsed;
+          }
+        }
+        // หากตัวหลักว่างเปล่า ให้ตรวจสอบชุดสำรองฉุกเฉิน
+        if (!loaded.length) {
+          const backupRaw = localStorage.getItem(STORAGE_BACKUP_KEY);
+          if (backupRaw) {
+            const parsed = JSON.parse(backupRaw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              loaded = parsed;
+              localStorage.setItem(STORAGE_KEY, backupRaw);
+            }
+          }
+        }
+        savedExams = loaded;
       } catch (e) {
+        console.error("LocalStorage load error:", e);
         savedExams = [];
       }
       renderExamListTable();
       refreshScanExamDropdown();
+    }
+
+    // Sync with Google Sheets / Cloud API (Smart Non-Destructive Merge)
+    function syncWithGoogleSheets(manualTrigger = false) {
+      const dbBadge = document.getElementById('db-status-badge');
+      const dbText = document.getElementById('db-status-text');
+
+      if (isGAS) {
+        if (dbBadge) dbBadge.classList.add('ready');
+        if (dbText) dbText.innerText = 'Google Sheets (กำลังซิงค์...)';
+
+        google.script.run
+          .withSuccessHandler(function (res) {
+            if (res && res.status === 'success') {
+              handleCloudSyncMerge(res.data || []);
+              if (dbText) dbText.innerText = 'Google Sheets';
+              if (manualTrigger) showToast('ซิงค์กับ Google Sheets สำเร็จ', 'success');
+            } else {
+              if (dbText) dbText.innerText = 'LocalStorage';
+              if (manualTrigger) showToast('การซิงค์ล้มเหลว: ' + (res?.message || 'ไม่ทราบสาเหตุ'), 'warning');
+            }
+          })
+          .withFailureHandler(function (err) {
+            console.warn("GAS Sync failed:", err);
+            if (dbText) dbText.innerText = 'LocalStorage';
+            if (manualTrigger) showToast('เชื่อมต่อ Google Sheets ไม่สำเร็จ', 'warning');
+          })
+          .getExamKeys();
+      } else {
+        const customUrl = localStorage.getItem(API_URL_KEY);
+        if (customUrl) {
+          if (dbText) dbText.innerText = 'Cloud API (กำลังซิงค์...)';
+          fetch(customUrl + (customUrl.includes('?') ? '&' : '?') + 'action=getExamKeys')
+            .then(r => r.json())
+            .then(res => {
+              if (res && res.status === 'success') {
+                handleCloudSyncMerge(res.data || []);
+                if (dbBadge) dbBadge.classList.add('ready');
+                if (dbText) dbText.innerText = 'Cloud Connected';
+                if (manualTrigger) showToast('ซิงค์ผ่าน Cloud API สำเร็จ', 'success');
+              } else {
+                if (dbText) dbText.innerText = 'LocalStorage';
+              }
+            })
+            .catch(err => {
+              console.warn("API Sync error:", err);
+              if (dbText) dbText.innerText = 'LocalStorage';
+              if (manualTrigger) showToast('เชื่อมต่อ Web API ไม่สำเร็จ: ' + err.message, 'warning');
+            });
+        } else {
+          if (dbText) dbText.innerText = 'LocalStorage';
+          if (manualTrigger) showToast('บันทึกในเครื่อง (LocalStorage) เรียบร้อย', 'info');
+        }
+      }
+    }
+
+    function handleCloudSyncMerge(cloudData) {
+      // 1. ถ้าบน Cloud มีข้อมูล แต่ในเครื่องยังไม่มี -> ดึงข้อมูลลงเครื่อง
+      if (cloudData.length > 0 && savedExams.length === 0) {
+        savedExams = cloudData;
+        saveExamsToLocalStorage();
+        renderExamListTable();
+        refreshScanExamDropdown();
+        return;
+      }
+
+      // 2. ถ้าในเครื่องมีข้อมูล แต่บน Cloud ว่างเปล่า -> อัปโหลดจากเครื่องขึ้น Cloud
+      if (savedExams.length > 0 && cloudData.length === 0) {
+        pushAllExamsToCloud();
+        return;
+      }
+
+      // 3. ถ้าทั้ง 2 ฝั่งมีข้อมูล -> ผสานรวมกัน (Merge) โดยไม่ให้มีข้อมูลใดสูญหาย
+      if (savedExams.length > 0 && cloudData.length > 0) {
+        let merged = [...cloudData];
+        let hasNewFromLocal = false;
+        savedExams.forEach(localEx => {
+          const exists = merged.some(m => m.subject === localEx.subject && m.level === localEx.level);
+          if (!exists) {
+            merged.push(localEx);
+            hasNewFromLocal = true;
+          }
+        });
+        savedExams = merged;
+        saveExamsToLocalStorage();
+        renderExamListTable();
+        refreshScanExamDropdown();
+        if (hasNewFromLocal) {
+          pushAllExamsToCloud();
+        }
+      }
+    }
+
+    function pushAllExamsToCloud() {
+      if (isGAS) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            console.log("Cloud sync response:", res);
+          })
+          .withFailureHandler(function (err) {
+            console.warn("Cloud push error:", err);
+          })
+          .syncAllExamKeys(savedExams);
+      } else {
+        const customUrl = localStorage.getItem(API_URL_KEY);
+        if (customUrl && savedExams.length >= 0) {
+          fetch(customUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'syncAllExamKeys', data: savedExams })
+          }).catch(e => console.warn(e));
+        }
+      }
     }
 
     // Tab Switching
@@ -1771,25 +1946,23 @@
         savedExams[editIdx] = examData;
         showToast("แก้ไขเฉลยเรียบร้อยแล้ว", "success");
       } else {
-        savedExams.push(examData);
+        const dupIdx = savedExams.findIndex(x => x.subject === subject && x.level === level);
+        if (dupIdx >= 0) {
+          if (confirm(`พบชุดเฉลยวิชา "${subject}" (${level}) อยู่แล้ว ต้องการบันทึกทับใช่หรือไม่?`)) {
+            savedExams[dupIdx] = examData;
+          } else {
+            savedExams.push(examData);
+          }
+        } else {
+          savedExams.push(examData);
+        }
         showToast("บันทึกชุดเฉลยใหม่เรียบร้อยแล้ว", "success");
       }
 
       saveExamsToLocalStorage();
       renderExamListTable();
       refreshScanExamDropdown();
-
-      if (isGAS) {
-        google.script.run
-          .withSuccessHandler(function (res) {
-            if (res && res.status === 'success') showToast('ซิงค์ไป Google Sheets สำเร็จ', 'success');
-          })
-          .withFailureHandler(function (err) {
-            showToast('Sync Error: ' + err, 'danger');
-          })
-          .saveExamKey(examData);
-      }
-
+      pushAllExamsToCloud();
       resetExamForm();
     }
 
@@ -1801,7 +1974,7 @@
       tbody.innerHTML = '';
 
       if (!savedExams.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px;">ยังไม่มีชุดเฉลยในระบบ</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">ยังไม่มีชุดเฉลยในระบบ (สร้างชุดเฉลยด้านบน หรือกด "นำเข้าไฟล์เฉลย")</td></tr>';
         return;
       }
 
@@ -1814,8 +1987,8 @@
             <td><strong style="color:var(--primary);font-size:15px;">${exam.maxScore}</strong></td>
             <td style="font-size:12.5px;color:#64748b;">${exam.createdAt || '-'}</td>
             <td style="text-align:center;white-space:nowrap;">
-              <button class="btn btn-outline btn-sm" onclick="editExam(${idx})"><i class="fa-solid fa-pen-to-square"></i> แก้ไข</button>
-              <button class="btn btn-danger btn-sm" onclick="deleteExam(${idx})"><i class="fa-solid fa-trash"></i> ลบ</button>
+              <button class="btn btn-outline btn-sm" onclick="editExam(${idx})" title="แก้ไขเฉลย"><i class="fa-solid fa-pen-to-square"></i> แก้ไข</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteExam(${idx})" title="ลบชุดเฉลยนี้"><i class="fa-solid fa-trash"></i> ลบ</button>
             </td>
           </tr>
         `;
@@ -1853,19 +2026,165 @@
     }
 
     function deleteExam(idx) {
-      if (!confirm(`คุณต้องการลบเฉลยวิชา "${savedExams[idx]?.subject}" ใช่หรือไม่?`)) return;
-      if (isGAS) google.script.run.deleteExamKey(idx);
+      const exam = savedExams[idx];
+      if (!exam) return;
+      if (!confirm(`คุณต้องการลบชุดเฉลยวิชา "${exam.subject}" (${exam.level}) ใช่หรือไม่?\n\n* ข้อมูลจะถูกลบออกจากระบบและ Google Sheets อย่างถาวร`)) return;
+
+      // บันทึกลงถังขยะชั่วคราวเผื่อกู้คืน
+      try {
+        const trash = JSON.parse(localStorage.getItem(STORAGE_TRASH_KEY) || '[]');
+        trash.push({ exam, deletedAt: new Date().toISOString() });
+        localStorage.setItem(STORAGE_TRASH_KEY, JSON.stringify(trash.slice(-15)));
+      } catch (e) {}
+
       savedExams.splice(idx, 1);
       saveExamsToLocalStorage();
       renderExamListTable();
       refreshScanExamDropdown();
-      showToast("ลบชุดเฉลยเรียบร้อยแล้ว", "success");
+      pushAllExamsToCloud();
+      showToast(`ลบชุดเฉลย "${exam.subject}" เรียบร้อยแล้ว`, "success");
     }
 
-    // Modal & Toast Controls
+    // =========================================================================
+    //  BACKUP & RESTORE (EXPORT / IMPORT JSON)
+    // =========================================================================
+    function exportExamKeysBackup() {
+      if (!savedExams.length) {
+        showToast("ยังไม่มีชุดเฉลยให้สำรองข้อมูล", "warning");
+        return;
+      }
+      const jsonStr = JSON.stringify(savedExams, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `exam_keys_backup_${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast(`ส่งออกไฟล์สำรอง ${savedExams.length} ชุดสำเร็จ`, "success");
+    }
+
+    function triggerImportExamKeys() {
+      document.getElementById('import-file-input').click();
+    }
+
+    function onImportFileSelected(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (!Array.isArray(imported)) throw new Error("รูปแบบไฟล์ JSON ไม่ถูกต้อง");
+          let count = 0;
+          imported.forEach(item => {
+            if (item.subject && item.answerKey) {
+              const existIdx = savedExams.findIndex(x => x.subject === item.subject && x.level === item.level);
+              if (existIdx >= 0) {
+                savedExams[existIdx] = item;
+              } else {
+                savedExams.push(item);
+              }
+              count++;
+            }
+          });
+          saveExamsToLocalStorage();
+          renderExamListTable();
+          refreshScanExamDropdown();
+          pushAllExamsToCloud();
+          showToast(`นำเข้าเฉลยสำเร็จ ${count} ชุด`, "success");
+        } catch (err) {
+          showToast("เกิดข้อผิดพลาดในการนำเข้าไฟล์: " + err.message, "danger");
+        }
+        event.target.value = '';
+      };
+      reader.readAsText(file);
+    }
+
+    // =========================================================================
+    //  MODAL & SETTINGS & TOAST
+    // =========================================================================
+    function openModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.classList.add('active');
+        if (id === 'modal-cloud-settings') initSettingsUI();
+      }
+    }
+
     function closeModal(id) {
       const modal = document.getElementById(id);
       if (modal) modal.classList.remove('active');
+    }
+
+    function initSettingsUI() {
+      const box = document.getElementById('settings-status-box');
+      const inp = document.getElementById('custom-api-url');
+      if (inp) inp.value = localStorage.getItem(API_URL_KEY) || '';
+
+      if (box) {
+        if (isGAS) {
+          box.innerHTML = '<span style="color:#15803d;font-weight:600;"><i class="fa-solid fa-circle-check"></i> ทำงานบน Google Apps Script โดยตรง</span> — ซิงค์ข้อมูลกับ Google Sheets อัตโนมัติ';
+        } else {
+          const currentUrl = localStorage.getItem(API_URL_KEY);
+          if (currentUrl) {
+            box.innerHTML = `<span style="color:#15803d;font-weight:600;"><i class="fa-solid fa-cloud-check"></i> เชื่อมต่อ Web App API:</span> <span style="word-break:break-all;font-size:12px;">${currentUrl}</span>`;
+          } else {
+            box.innerHTML = '<span style="color:#2563eb;font-weight:600;"><i class="fa-solid fa-hard-drive"></i> บันทึกในเครื่อง (LocalStorage)</span> — บันทึกถาวรในเบราว์เซอร์เครื่องนี้ (หรือกรอก Web App URL ด้านล่างเพื่อซิงค์ขึ้น Cloud)';
+          }
+        }
+      }
+    }
+
+    function saveCloudSettings() {
+      const inp = document.getElementById('custom-api-url');
+      if (inp) {
+        const val = inp.value.trim();
+        if (val) {
+          localStorage.setItem(API_URL_KEY, val);
+          showToast("บันทึกการตั้งค่า Web App API เรียบร้อย", "success");
+        } else {
+          localStorage.removeItem(API_URL_KEY);
+          showToast("ล้างการตั้งค่า Cloud API แล้ว (ใช้ LocalStorage ในเครื่อง)", "info");
+        }
+      }
+      closeModal('modal-cloud-settings');
+      syncWithGoogleSheets(true);
+    }
+
+    function testCloudConnection() {
+      if (isGAS) {
+        google.script.run
+          .withSuccessHandler(function (res) {
+            showToast("เชื่อมต่อ Google Sheets สำเร็จ! (" + (res?.sheetName || 'คลังเฉลย') + ")", "success");
+          })
+          .withFailureHandler(function (err) {
+            showToast("ทดสอบเชื่อมต่อล้มเหลว: " + err, "danger");
+          })
+          .checkConnection();
+      } else {
+        const url = (document.getElementById('custom-api-url')?.value || '').trim();
+        if (!url) {
+          showToast("กรุณากรอก Web App URL ก่อนทดสอบ", "warning");
+          return;
+        }
+        showToast("กำลังทดสอบการเชื่อมต่อ...", "info");
+        fetch(url + (url.includes('?') ? '&' : '?') + 'action=checkConnection')
+          .then(r => r.json())
+          .then(res => {
+            if (res && res.status === 'success') {
+              showToast("ทดสอบสำเร็จ: เชื่อมต่อ Google Sheets เรียบร้อย", "success");
+            } else {
+              showToast("ตอบกลับ: " + (res?.message || 'ไม่สำเร็จ'), "warning");
+            }
+          })
+          .catch(e => {
+            showToast("ไม่สามารถเชื่อมต่อได้: " + e.message, "danger");
+          });
+      }
     }
 
     function showToast(msg, type = "info") {
